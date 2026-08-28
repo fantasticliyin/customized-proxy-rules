@@ -1,0 +1,300 @@
+name: Build and publish GeoData
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_release_id:
+        description: "Immutable MetaCubeX/meta-rules-dat Release database ID; empty selects latest"
+        required: false
+        type: string
+  push:
+    paths:
+      - "rules/**"
+      - "tools/rule-patcher/config.yaml"
+      - "tools/rule-patcher/toolchain.lock.yaml"
+      - "tools/rule-patcher/cmd/**"
+      - "tools/rule-patcher/internal/**"
+      - "tools/rule-patcher/go.mod"
+      - "tools/rule-patcher/go.sum"
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: geodata-release
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    outputs:
+      skip: ${{ steps.identity.outputs.skip }}
+      release_id: ${{ steps.identity.outputs.release_id }}
+      published_at: ${{ steps.identity.outputs.published_at }}
+      release_inputs_hash: ${{ steps.identity.outputs.release_inputs_hash }}
+      tag: ${{ steps.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+      - id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_RELEASE_ID: ${{ inputs.upstream_release_id }}
+        run: |
+          set -euo pipefail
+          api_path="repos/MetaCubeX/meta-rules-dat/releases/latest"
+          if [[ -n "${REQUESTED_RELEASE_ID:-}" ]]; then
+            [[ "$REQUESTED_RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+            api_path="repos/MetaCubeX/meta-rules-dat/releases/$REQUESTED_RELEASE_ID"
+          fi
+          release_json="$(gh api "$api_path")"
+          release_id="$(jq -er '.id' <<<"$release_json")"
+          published_at="$(jq -er '.published_at' <<<"$release_json")"
+          short_sha="${GITHUB_SHA:0:12}"
+          tag="u${release_id}-c${short_sha}"
+
+          mapfile -d '' inputs < <(git ls-files -z -- \
+            rules \
+            tools/rule-patcher/config.yaml \
+            tools/rule-patcher/toolchain.lock.yaml \
+            tools/rule-patcher/cmd \
+            tools/rule-patcher/internal \
+            tools/rule-patcher/go.mod \
+            tools/rule-patcher/go.sum \
+            .github/workflows/release.yml)
+          release_inputs_hash="$({ for path in "${inputs[@]}"; do sha256sum "$path"; done; } | sha256sum | cut -d' ' -f1)"
+          skip=false
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            temp="$(mktemp -d)"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern manifest.json --dir "$temp"
+            jq -e --argjson id "$release_id" --arg hash "$release_inputs_hash" \
+              '.upstream.release_id == $id and .release_inputs_hash == $hash' "$temp/manifest.json" >/dev/null || {
+              echo "Existing tag has a conflicting manifest identity" >&2
+              exit 1
+            }
+            skip=true
+          else
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "Target tag already exists without the expected Release; refusing to bind or overwrite it" >&2
+              exit 1
+            fi
+            latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)"
+            if [[ -n "$latest_tag" ]]; then
+              temp="$(mktemp -d)"
+              if gh release download "$latest_tag" --repo "$GITHUB_REPOSITORY" --pattern manifest.json --dir "$temp" 2>/dev/null; then
+                if jq -e --argjson id "$release_id" --arg hash "$release_inputs_hash" \
+                  '.upstream.release_id == $id and .release_inputs_hash == $hash' "$temp/manifest.json" >/dev/null; then
+                  skip=true
+                fi
+              fi
+            fi
+          fi
+          {
+            echo "skip=$skip"
+            echo "release_id=$release_id"
+            echo "published_at=$published_at"
+            echo "release_inputs_hash=$release_inputs_hash"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: identity
+    if: needs.identity.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: tools/rule-patcher/go.mod
+          cache-dependency-path: tools/rule-patcher/go.sum
+      - name: Test and build patcher
+        run: |
+          set -euo pipefail
+          go -C tools/rule-patcher test -race ./...
+          go -C tools/rule-patcher vet ./...
+          mkdir -p "$RUNNER_TEMP/bin"
+          go -C tools/rule-patcher build -trimpath -o "$RUNNER_TEMP/bin/rule-patcher" ./cmd/rule-patcher
+      - name: Build and validate distribution
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        working-directory: tools/rule-patcher
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/bin/rule-patcher" build \
+            --upstream-release-id "${{ needs.identity.outputs.release_id }}" \
+            --commit "$GITHUB_SHA" \
+            --release-inputs-hash "${{ needs.identity.outputs.release_inputs_hash }}" \
+            --generated-at "${{ needs.identity.outputs.published_at }}"
+      - name: Stage same-run artifact
+        run: |
+          mkdir -p publish/bin
+          cp "$RUNNER_TEMP/bin/rule-patcher" publish/bin/
+          cp -a dist publish/dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: geodata-${{ needs.identity.outputs.tag }}
+          path: publish
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [identity, build]
+    if: needs.identity.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: geodata-${{ needs.identity.outputs.tag }}
+          path: publish
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version-file: tools/rule-patcher/go.mod
+          cache-dependency-path: tools/rule-patcher/go.sum
+      - name: Revalidate staged distribution
+        run: |
+          chmod +x publish/bin/rule-patcher
+          publish/bin/rule-patcher validate \
+            --config tools/rule-patcher/config.yaml \
+            --toolchain-lock tools/rule-patcher/toolchain.lock.yaml \
+            --dist publish/dist
+      - name: Publish with compensation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.identity.outputs.tag }}
+          UPSTREAM_PUBLISHED_AT: ${{ needs.identity.outputs.published_at }}
+        run: |
+          set -Eeuo pipefail
+          old_ref="$(git ls-remote --heads origin refs/heads/release | cut -f1)"
+          new_ref=""
+          release_id=""
+          created_release=""
+          branch_updated=false
+          published=false
+          compensate() {
+            status=$?
+            set +e
+            compensation_failed=false
+            if [[ -z "$release_id" && -n "$created_release" ]]; then
+              release_id="$(jq -r '.id // empty' <<<"$created_release")"
+            fi
+            if [[ -n "$release_id" ]]; then
+              current_release="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" 2>/dev/null)"
+              current_id="$(jq -r '.id // empty' <<<"$current_release")"
+              current_tag="$(jq -r '.tag_name // empty' <<<"$current_release")"
+              current_draft="$(jq -r '.draft // empty' <<<"$current_release")"
+              release_identity_ok=false
+              if [[ "$current_id" == "$release_id" && "$current_tag" == "$RELEASE_TAG" ]]; then
+                release_identity_ok=true
+                if [[ "$published" == true || "$current_draft" == false ]]; then
+                  failed_release="$(mktemp -d)"
+                  if ! gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern manifest.json --dir "$failed_release" || \
+                     ! cmp publish/dist/manifest.json "$failed_release/manifest.json"; then
+                    release_identity_ok=false
+                    echo "CRITICAL: published Release manifest identity changed; refusing automatic deletion" >&2
+                  fi
+                fi
+              fi
+              if [[ "$release_identity_ok" == true ]]; then
+                if ! gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$release_id"; then
+                  compensation_failed=true
+                  echo "CRITICAL: failed to delete Release database ID $release_id" >&2
+                fi
+                tag_ref="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | cut -f1)"
+                if [[ -n "$tag_ref" ]]; then
+                  if [[ "$tag_ref" == "$GITHUB_SHA" ]]; then
+                    git push origin ":refs/tags/$RELEASE_TAG" --force-with-lease="refs/tags/$RELEASE_TAG:$tag_ref" || compensation_failed=true
+                  else
+                    compensation_failed=true
+                    echo "CRITICAL: tag points to $tag_ref, expected $GITHUB_SHA; refusing deletion" >&2
+                  fi
+                fi
+              elif [[ -n "$current_id" ]]; then
+                compensation_failed=true
+                echo "CRITICAL: Release identity changed; expected id=$release_id tag=$RELEASE_TAG" >&2
+              fi
+            fi
+            if [[ "$branch_updated" == true && -n "$new_ref" ]]; then
+              remote_ref="$(git ls-remote --heads origin refs/heads/release | cut -f1)"
+              if [[ "$remote_ref" == "$new_ref" ]]; then
+                if [[ -n "$old_ref" ]]; then
+                  git push origin "$old_ref:refs/heads/release" --force-with-lease="refs/heads/release:$new_ref" || compensation_failed=true
+                else
+                  git push origin :refs/heads/release --force-with-lease="refs/heads/release:$new_ref" || compensation_failed=true
+                fi
+              else
+                compensation_failed=true
+                echo "CRITICAL: release branch changed concurrently; expected $new_ref, found $remote_ref" >&2
+              fi
+            fi
+            if [[ "$compensation_failed" == true ]]; then
+              echo "CRITICAL: automatic compensation was incomplete." >&2
+              echo "Inspect Release ID $release_id, tag $RELEASE_TAG, and restore refs/heads/release to ${old_ref:-<absent>} only after verifying their current identities." >&2
+            fi
+            exit "$status"
+          }
+          trap compensate ERR
+
+          notes="$(mktemp)"
+          jq -r '"Upstream: \(.upstream.repository) Release ID \(.upstream.release_id)\nInput GeoSite SHA-256: \(.upstream.geosite_sha256)\nInput GeoIP SHA-256: \(.upstream.geoip_sha256)\nWarnings: \(.warnings | length)\n\nDerived under GPL-3.0-only from MetaCubeX/meta-rules-dat. Verify with SHA256SUMS."' publish/dist/manifest.json > "$notes"
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Target tag appeared after identity check; refusing to bind it" >&2
+            exit 1
+          fi
+          release_payload="$(jq -n \
+            --arg tag "$RELEASE_TAG" --arg target "$GITHUB_SHA" \
+            --arg title "GeoData ${UPSTREAM_PUBLISHED_AT} (${GITHUB_SHA:0:12})" \
+            --rawfile body "$notes" \
+            '{tag_name:$tag,target_commitish:$target,name:$title,body:$body,draft:true,prerelease:false}')"
+          created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input - <<<"$release_payload")"
+          release_id="$(jq -er '.id' <<<"$created_release")"
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/srs.tar.gz \
+            publish/dist/manifest.json publish/dist/SHA256SUMS
+
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
+          for path in publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/srs.tar.gz publish/dist/manifest.json publish/dist/SHA256SUMS; do
+            name="$(basename "$path")"
+            size="$(stat -c %s "$path")"
+            digest="sha256:$(sha256sum "$path" | cut -d' ' -f1)"
+            jq -e --arg name "$name" --argjson size "$size" --arg digest "$digest" \
+              '.assets | any(.name == $name and .size == $size and .digest == $digest)' <<<"$release_json" >/dev/null
+          done
+
+          worktree="$(mktemp -d)"
+          git worktree add --detach "$worktree" HEAD
+          git -C "$worktree" switch --orphan release-stage
+          git -C "$worktree" rm -rf --ignore-unmatch .
+          cp -a publish/dist/release/. "$worktree/"
+          git -C "$worktree" add --all
+          git -C "$worktree" -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -m "Release $RELEASE_TAG"
+          new_ref="$(git -C "$worktree" rev-parse HEAD)"
+          if [[ -n "$old_ref" ]]; then
+            git push origin "$new_ref:refs/heads/release" --force-with-lease="refs/heads/release:$old_ref"
+          else
+            git push origin "$new_ref:refs/heads/release" --force-with-lease="refs/heads/release:"
+          fi
+          branch_updated=true
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          published=true
+
+          remote_ref="$(git ls-remote --heads origin refs/heads/release | cut -f1)"
+          [[ "$remote_ref" == "$new_ref" ]] || {
+            echo "release branch changed before final identity verification" >&2
+            exit 1
+          }
+          git fetch --no-tags origin "$new_ref"
+          git show "$remote_ref:manifest.json" > "$RUNNER_TEMP/branch-manifest.json"
+          cmp publish/dist/manifest.json "$RUNNER_TEMP/branch-manifest.json"
+          remote_release="$(mktemp -d)"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern manifest.json --dir "$remote_release"
+          cmp publish/dist/manifest.json "$remote_release/manifest.json"
+          trap - ERR

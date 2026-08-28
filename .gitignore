@@ -1,0 +1,8 @@
+/dist/
+/.cache/
+/.tmp/
+/tools/rule-patcher/dist/
+/tools/rule-patcher/.cache/
+/tools/rule-patcher/.tmp/
+/tools/rule-patcher/rule-patcher
+

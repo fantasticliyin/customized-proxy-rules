@@ -1,0 +1,13 @@
+schema_version: 1
+sing_box:
+  version: v1.13.19
+  url: https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64-glibc.tar.gz
+  sha256: 77e26226c111b8a269f559aec7999f6f5ae1961f25374b58b126d06405d4f516
+mihomo:
+  version: v1.19.30
+  url: https://github.com/MetaCubeX/mihomo/releases/download/v1.19.30/mihomo-linux-amd64-compatible-v1.19.30.gz
+  sha256: db214c7a2517e63c150d123178d16d102e03a241ccdae4e5e07ffbe9cf56c6f9
+converter:
+  module: github.com/metacubex/meta-rules-converter
+  version: v0.0.0-20251201061744-7dea27841a35
+  commit: 7dea27841a3579a633189830c98c08a0434e8b79

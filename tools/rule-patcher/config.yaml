@@ -1,0 +1,13 @@
+schema_version: 1
+upstream:
+  repository: MetaCubeX/meta-rules-dat
+  assets:
+    geosite: geosite.dat
+    geosite_checksum: geosite.dat.sha256sum
+    geoip: geoip.dat
+    geoip_checksum: geoip.dat.sha256sum
+rules_dir: ../../rules
+dist_dir: ../../dist
+cache_dir: .cache
+max_dat_bytes: 134217728
+workers: 4
