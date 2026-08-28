@@ -1,0 +1,3 @@
+{"file":".trellis/tasks/08-27-geodata-overlay-distribution/research/toolchain-and-formats.md","reason":"实现必须遵循已验证的 DAT→MetaCubeX geo→sing-box export/compile 工具链、版本锁和外部格式边界。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"功能跨 GitHub API、CSV、protobuf、外部转换器、artifact 与发布层，需要统一边界契约与验证 owner。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"配置、manifest、warning、inspect/diff projection 和命令执行必须由共享 typed owner 提供，避免 CLI/workflow 重复语义。"}

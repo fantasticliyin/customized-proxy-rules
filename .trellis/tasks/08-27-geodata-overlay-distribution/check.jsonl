@@ -1,0 +1,3 @@
+{"file":".trellis/tasks/08-27-geodata-overlay-distribution/research/toolchain-and-formats.md","reason":"检查锁定工具 provenance、转换命令、attribute view 和 release API/checksum 契约是否与调研一致。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查完整数据流中每个格式边界、失败路径、round-trip 与消费者是否复用共享 decoder/projection。"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"检查配置常量、领域规则、manifest/warning schema 与派生状态是否存在重复 owner 或漂移。"}
