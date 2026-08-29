@@ -99,7 +99,7 @@
 
 ### R8 — GitHub Actions 与版本
 
-- Schedule 使用 `17 * * * *`，每小时第 17 分钟检查上游；无新组合时快速退出。
+- Schedule 使用 `53 * * * *`，每小时第 53 分钟检查上游；无新组合时快速退出。
 - Push 仅监听：
   - `rules/**`
   - patcher 的 config、toolchain lock、cmd、internal、go.mod、go.sum

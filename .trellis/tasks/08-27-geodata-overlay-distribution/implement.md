@@ -259,7 +259,7 @@ snapshot；若自动补偿因并发安全拒绝执行，日志给出旧/new/ref 
 
 - 用 `actionlint` 校验 workflow；
 - 验证 push path matrix：rules/code/config/lock/workflow 触发，docs/testdata 不触发；
-- 验证 schedule 为 `17 * * * *`，dispatch ID 空/指定两条路径；
+- 验证 schedule 为 `53 * * * *`，dispatch ID 空/指定两条路径；
 - 验证同 tag 第二次运行，以及 docs/testdata-only commit 后的 schedule，都在工具
   和 DAT 下载前退出；
 - 对照 GitHub Release manifest 与 `release` branch manifest/version/hash。

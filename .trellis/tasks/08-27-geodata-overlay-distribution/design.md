@@ -370,7 +370,7 @@ tar，只含两个 SRS 目录、manifest 与 checksums；分支 checksums 为该
 
 单一 `.github/workflows/release.yml`：
 
-- `schedule: '17 * * * *'`；
+- `schedule: '53 * * * *'`；
 - `workflow_dispatch.inputs.upstream_release_id` 可空；
 - push paths 严格等于 PRD R8 列表；
 - `permissions: contents: write`，其余最小权限；第三方 action 固定完整 commit SHA；
