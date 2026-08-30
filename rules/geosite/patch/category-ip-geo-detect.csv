@@ -1,0 +1,3 @@
+op,type,value,attrs,note
++,DOMAIN-SUFFIX,ippure.com,,Public IP detection
++,DOMAIN-SUFFIX,123168.xyz,,Public IP detection

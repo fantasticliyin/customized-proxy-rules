@@ -4,6 +4,8 @@
 
 Category 由小写安全文件名决定。文件必须是 UTF-8（无 BOM）的标准 CSV，表头与
 列数严格固定；`note` 仅供审阅，不参与 identity。
+Category 可使用小写字母、数字、`_`、`-` 和 `!`（例如
+`category-ai-!cn.csv`）；`@` 仍保留给派生 attribute 视图，不得出现在输入文件名中。
 
 GeoSite：
 

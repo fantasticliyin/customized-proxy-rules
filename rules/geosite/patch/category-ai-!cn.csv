@@ -1,0 +1,4 @@
+op,type,value,attrs,note
++,DOMAIN,api.together.xyz,,Together AI API
++,DOMAIN-SUFFIX,client-api.arkoselabs.com,,AI verification dependency
++,DOMAIN-SUFFIX,auth0.com,,AI authentication dependency

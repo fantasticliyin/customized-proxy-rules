@@ -1,0 +1,3 @@
+op,type,value,note
++,IP-CIDR,100.64.0.0/10,Tailscale IPv4 CGNAT range
++,IP-CIDR,fd7a:115c:a1e0::/48,Tailscale IPv6 ULA range

@@ -36,6 +36,19 @@ func TestCanonicalIP(t *testing.T) {
 	}
 }
 
+func TestValidateCategory(t *testing.T) {
+	for _, category := range []string{"custom", "category-ai-!cn", "category_ip"} {
+		if err := ValidateCategory(category); err != nil {
+			t.Errorf("ValidateCategory(%q): %v", category, err)
+		}
+	}
+	for _, category := range []string{"Category", "category@ads", "../category", "category.ai"} {
+		if err := ValidateCategory(category); err == nil {
+			t.Errorf("ValidateCategory(%q) accepted invalid category", category)
+		}
+	}
+}
+
 func TestLoadTreeQuotedAndConflict(t *testing.T) {
 	root := ruleTree(t)
 	write(t, filepath.Join(root, "geosite", "new", "custom.csv"), "op,type,value,attrs,note\n+,DOMAIN,Example.COM.,@ads,\"quoted, note\"\n")

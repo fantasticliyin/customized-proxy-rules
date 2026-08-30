@@ -57,12 +57,12 @@ type Record struct {
 	Note     string         `json:"note,omitempty"`
 }
 
-var categoryPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+var categoryPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_!-]*$`)
 var attrPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 func ValidateCategory(s string) error {
 	if !categoryPattern.MatchString(s) || strings.Contains(s, "@") {
-		return fmt.Errorf("invalid category %q: expected lowercase [a-z0-9][a-z0-9_-]*", s)
+		return fmt.Errorf("invalid category %q: expected lowercase [a-z0-9][a-z0-9_!-]*", s)
 	}
 	return nil
 }
