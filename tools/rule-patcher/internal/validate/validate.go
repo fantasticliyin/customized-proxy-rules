@@ -19,6 +19,7 @@ import (
 
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/artifact"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/geodat"
+	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/metadb"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/srs"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/upstream"
 )
@@ -56,6 +57,12 @@ func DistWithTools(ctx context.Context, dist string, maxBytes int64, tools srs.T
 		return report, fmt.Errorf("geoip DAT has no representative category")
 	}
 	ipRepresentative := strings.ToLower(ip.Entry[0].CountryCode)
+	for _, category := range ip.Entry {
+		if strings.EqualFold(category.CountryCode, "tailscale") {
+			ipRepresentative = "tailscale"
+			break
+		}
+	}
 	paths, err := srsIndex(dist)
 	if err != nil {
 		return report, err
@@ -66,6 +73,11 @@ func DistWithTools(ctx context.Context, dist string, maxBytes int64, tools srs.T
 	if err := srs.MihomoSmoke(ctx, mihomo, filepath.Join(dist, "geosite.dat"), filepath.Join(dist, "geoip.dat"), siteRepresentative, ipRepresentative); err != nil {
 		return report, fmt.Errorf("%w: %v", ErrExternalTool, err)
 	}
+	if report.SchemaVersion == artifact.ManifestSchema {
+		if err := srs.MihomoMetaDBSmoke(ctx, mihomo, filepath.Join(dist, "geoip.metadb"), ipRepresentative); err != nil {
+			return report, fmt.Errorf("%w: %v", ErrExternalTool, err)
+		}
+	}
 	return report, nil
 }
 
@@ -75,7 +87,7 @@ func Dist(dist string, maxBytes int64) (Report, error) {
 	if err != nil {
 		return report, fmt.Errorf("manifest: %w", err)
 	}
-	report.SchemaVersion = 1
+	report.SchemaVersion = manifest.SchemaVersion
 	report.Version = manifest.Version
 	if manifest.Version == "" || manifest.CustomCommit == "" || len(manifest.ReleaseInputsHash) != 64 || manifest.GeneratedAt.IsZero() || manifest.License != "GPL-3.0-only" || manifest.Upstream.Repository != "MetaCubeX/meta-rules-dat" {
 		return report, fmt.Errorf("manifest provenance is incomplete")
@@ -100,8 +112,12 @@ func Dist(dist string, maxBytes int64) (Report, error) {
 		return report, err
 	}
 	rootFiles := []string{"geosite.dat", "geoip.dat", "manifest.json", "srs.tar.gz"}
+	if manifest.SchemaVersion == artifact.ManifestSchema {
+		rootFiles = append(rootFiles, "geoip.metadb")
+	}
+	sort.Strings(rootFiles)
 	if len(checks) != len(rootFiles) {
-		return report, fmt.Errorf("SHA256SUMS must contain exactly the four Release assets")
+		return report, fmt.Errorf("SHA256SUMS must contain exactly %d checksummed Release assets for schema %d", len(rootFiles), manifest.SchemaVersion)
 	}
 	for _, name := range rootFiles {
 		want, ok := checks[name]
@@ -127,6 +143,11 @@ func Dist(dist string, maxBytes int64) (Report, error) {
 	}
 	report.GeoSiteCategories = len(site.Entry)
 	report.GeoIPCategories = len(ip.Entry)
+	if manifest.SchemaVersion == artifact.ManifestSchema {
+		if err := metadb.Validate(filepath.Join(dist, "geoip.metadb"), ip, manifest.GeneratedAt, maxBytes); err != nil {
+			return report, err
+		}
+	}
 	siteNames, err := srs.ExpectedSite(site)
 	if err != nil {
 		return report, err
@@ -172,7 +193,11 @@ func Dist(dist string, maxBytes int64) (Report, error) {
 	if len(disk) != manifest.Categories.GeoSite+manifest.Categories.GeoSiteViews+manifest.Categories.GeoIP {
 		return report, fmt.Errorf("manifest SRS count differs from disk")
 	}
-	expectedManifestFiles := append([]string{"geosite.dat", "geoip.dat", "srs.tar.gz"}, disk...)
+	expectedManifestFiles := []string{"geosite.dat", "geoip.dat", "srs.tar.gz"}
+	if manifest.SchemaVersion == artifact.ManifestSchema {
+		expectedManifestFiles = append(expectedManifestFiles, "geoip.metadb")
+	}
+	expectedManifestFiles = append(expectedManifestFiles, disk...)
 	sort.Strings(expectedManifestFiles)
 	if len(manifest.Files) != len(expectedManifestFiles) {
 		return report, fmt.Errorf("manifest file inventory count mismatch")

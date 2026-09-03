@@ -19,7 +19,10 @@ import (
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/upstream"
 )
 
-const ManifestSchema = 1
+const (
+	LegacyManifestSchema = 1
+	ManifestSchema       = 2
+)
 
 type ToolVersions struct {
 	SingBox          string `json:"sing_box"`
@@ -65,7 +68,7 @@ func Finalize(dist string, manifest Manifest) error {
 		return err
 	}
 	manifest.Files = map[string]FileInfo{}
-	files := []string{"geosite.dat", "geoip.dat", "srs.tar.gz"}
+	files := []string{"geosite.dat", "geoip.dat", "geoip.metadb", "srs.tar.gz"}
 	for _, dataset := range []string{"geosite", "geoip"} {
 		entries, err := os.ReadDir(filepath.Join(dist, dataset))
 		if err != nil {
@@ -93,7 +96,7 @@ func Finalize(dist string, manifest Manifest) error {
 	if err := os.WriteFile(filepath.Join(dist, "manifest.json"), data, 0o644); err != nil {
 		return err
 	}
-	if err := writeChecksums(filepath.Join(dist, "SHA256SUMS"), dist, []string{"geosite.dat", "geoip.dat", "manifest.json", "srs.tar.gz"}); err != nil {
+	if err := writeChecksums(filepath.Join(dist, "SHA256SUMS"), dist, []string{"geosite.dat", "geoip.dat", "geoip.metadb", "manifest.json", "srs.tar.gz"}); err != nil {
 		return err
 	}
 	return writeBranchSnapshot(dist)
@@ -122,8 +125,8 @@ func ReadManifest(path string) (Manifest, error) {
 	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return m, fmt.Errorf("manifest contains trailing data")
 	}
-	if m.SchemaVersion != ManifestSchema {
-		return m, fmt.Errorf("manifest schema must be %d", ManifestSchema)
+	if m.SchemaVersion != LegacyManifestSchema && m.SchemaVersion != ManifestSchema {
+		return m, fmt.Errorf("manifest schema must be %d or %d", LegacyManifestSchema, ManifestSchema)
 	}
 	return m, nil
 }

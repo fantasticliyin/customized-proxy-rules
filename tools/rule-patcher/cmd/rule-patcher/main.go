@@ -22,6 +22,7 @@ import (
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/artifact"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/config"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/geodat"
+	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/metadb"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/overlay"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/rulescsv"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/srs"
@@ -262,6 +263,31 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("final geoip DAT contains no categories")
 	}
 	ip = nil
+	timestamp := prov.PublishedAt
+	if *generatedAt != "" {
+		timestamp, err = time.Parse(time.RFC3339, *generatedAt)
+		if err != nil {
+			return fmt.Errorf("invalid --generated-at: %w", err)
+		}
+	}
+	sourceDateEpoch := os.Getenv("SOURCE_DATE_EPOCH")
+	if sourceDateEpoch != "" {
+		seconds, e := strconv.ParseInt(sourceDateEpoch, 10, 64)
+		if e != nil {
+			return fmt.Errorf("invalid SOURCE_DATE_EPOCH")
+		}
+		timestamp = time.Unix(seconds, 0).UTC()
+	}
+	// Local DAT inputs have no upstream publication timestamp. Keep that mode
+	// usable without requiring an extra flag while avoiding MMDB writer's zero
+	// BuildEpoch sentinel, which would otherwise fall back to wall-clock time.
+	if localBuild && *generatedAt == "" && sourceDateEpoch == "" {
+		timestamp = time.Unix(1, 0).UTC()
+	}
+	timestamp = timestamp.UTC().Truncate(time.Second)
+	if err := metadb.Generate(filepath.Join(dist, "geoip.dat"), filepath.Join(dist, "geoip.metadb"), timestamp, cfg.MaxDATBytes); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	tools := srs.Tools{Converter: *converter, SingBox: *singBox, Workers: cfg.Workers}
@@ -270,20 +296,6 @@ func runBuild(args []string, stdout, stderr io.Writer) error {
 	}
 	if err := srs.Generate(ctx, tools, "geoip", filepath.Join(dist, "geoip.dat"), filepath.Join(dist, "geoip"), ipIndex); err != nil {
 		return err
-	}
-	timestamp := prov.PublishedAt
-	if *generatedAt != "" {
-		timestamp, err = time.Parse(time.RFC3339, *generatedAt)
-		if err != nil {
-			return fmt.Errorf("invalid --generated-at: %w", err)
-		}
-	}
-	if source := os.Getenv("SOURCE_DATE_EPOCH"); source != "" {
-		seconds, e := strconv.ParseInt(source, 10, 64)
-		if e != nil {
-			return fmt.Errorf("invalid SOURCE_DATE_EPOCH")
-		}
-		timestamp = time.Unix(seconds, 0).UTC()
 	}
 	version := "local-c" + (*commit)[:12]
 	if prov.ReleaseID > 0 {

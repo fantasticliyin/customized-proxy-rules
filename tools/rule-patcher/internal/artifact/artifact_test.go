@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/geodat"
+	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/metadb"
 	v2ray "github.com/metacubex/geo/encoding/v2raygeo"
 )
 
@@ -48,6 +49,9 @@ func fixtureDist(t *testing.T) string {
 		t.Fatal(err)
 	}
 	if err := geodat.WriteIP(filepath.Join(dir, "geoip.dat"), &v2ray.GeoIPList{Entry: []*v2ray.GeoIP{{CountryCode: "test", Cidr: []*v2ray.CIDR{{Ip: []byte{192, 0, 2, 0}, Prefix: 24}}}}}, geodat.DefaultMaxBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := metadb.Generate(filepath.Join(dir, "geoip.dat"), filepath.Join(dir, "geoip.metadb"), time.Unix(1234, 0), geodat.DefaultMaxBytes); err != nil {
 		t.Fatal(err)
 	}
 	return dir

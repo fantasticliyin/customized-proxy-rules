@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/artifact"
 	"github.com/liyin/customized-proxy-rules/tools/rule-patcher/internal/geodat"
@@ -72,9 +73,17 @@ func TestWorkflowTriggerAndHashScopesStayAligned(t *testing.T) {
 	if strings.Contains(text, `- "tools/rule-patcher/docs/**"`) || strings.Contains(text, "            tools/rule-patcher/docs ") {
 		t.Fatal("docs unexpectedly participate in publication identity")
 	}
+	assetSequence := "publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/geoip.metadb publish/dist/srs.tar.gz"
+	if strings.Count(text, assetSequence) != 2 {
+		t.Fatal("workflow upload and digest verification do not share the complete Release asset sequence")
+	}
+	if !strings.Contains(text, `.files["geoip.metadb"].sha256`) {
+		t.Fatal("Release notes do not report the MetaDB digest")
+	}
 }
 
 func TestBuildValidateInspectAndDiff(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "")
 	root := t.TempDir()
 	rules := filepath.Join(root, "rules")
 	for _, dir := range []string{"geosite/new", "geosite/patch", "geoip/new", "geoip/patch"} {
@@ -100,10 +109,26 @@ func TestBuildValidateInspectAndDiff(t *testing.T) {
 	lockPath := filepath.Join(root, "lock.yaml")
 	mustWrite(t, configPath, fmt.Sprintf("schema_version: 1\nupstream:\n  repository: MetaCubeX/meta-rules-dat\n  assets:\n    geosite: geosite.dat\n    geosite_checksum: geosite.dat.sha256sum\n    geoip: geoip.dat\n    geoip_checksum: geoip.dat.sha256sum\nrules_dir: %s\ndist_dir: %s\ncache_dir: %s\nmax_dat_bytes: 134217728\nworkers: 2\n", rules, filepath.Join(root, "dist"), filepath.Join(root, "cache")), 0o644)
 	mustWrite(t, lockPath, "schema_version: 1\nsing_box:\n  version: v1\n  url: https://github.com/SagerNet/sing-box/releases/download/v1/sing.tar.gz\n  sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nmihomo:\n  version: v1\n  url: https://github.com/MetaCubeX/mihomo/releases/download/v1/mihomo.gz\n  sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\nconverter:\n  module: github.com/metacubex/meta-rules-converter\n  version: v0.0.0-20260101000000-cccccccccccc\n  commit: cccccccccccccccccccccccccccccccccccccccc\n", 0o644)
-	args := []string{"build", "--config", configPath, "--toolchain-lock", lockPath, "--geosite", site, "--geoip", ip, "--converter", converter, "--sing-box", sing, "--mihomo", mihomo, "--commit", "123456789abcdef", "--generated-at", "2026-01-01T00:00:00Z"}
+	args := []string{"build", "--config", configPath, "--toolchain-lock", lockPath, "--geosite", site, "--geoip", ip, "--converter", converter, "--sing-box", sing, "--mihomo", mihomo, "--commit", "123456789abcdef"}
 	var out, stderr bytes.Buffer
 	if code := run(args, &out, &stderr); code != 0 {
 		t.Fatalf("build code %d: %s", code, stderr.String())
+	}
+	manifest, err := artifact.ReadManifest(filepath.Join(root, "dist", "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != artifact.ManifestSchema {
+		t.Fatalf("build wrote manifest schema %d, want %d", manifest.SchemaVersion, artifact.ManifestSchema)
+	}
+	if want := time.Unix(1, 0).UTC(); !manifest.GeneratedAt.Equal(want) {
+		t.Fatalf("local build generated_at = %s, want deterministic default %s", manifest.GeneratedAt, want)
+	}
+	if info, err := os.Stat(filepath.Join(root, "dist", "geoip.metadb")); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		t.Fatalf("build did not produce geoip.metadb: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "dist", "release", "geoip.metadb")); !os.IsNotExist(err) {
+		t.Fatalf("release branch snapshot unexpectedly contains geoip.metadb: %v", err)
 	}
 	first, err := artifact.HashTree(filepath.Join(root, "dist"))
 	if err != nil {

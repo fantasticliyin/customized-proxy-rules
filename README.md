@@ -2,16 +2,17 @@
 
 本仓库以少量 CSV overlay 维护自定义 GeoSite / GeoIP 规则，并持续基于
 [`MetaCubeX/meta-rules-dat`](https://github.com/MetaCubeX/meta-rules-dat) 发布的
-V2Ray GeoData 生成同一版本的 Mihomo DAT 与 sing-box SRS。
+V2Ray GeoData 生成同一版本的 Mihomo DAT、MetaDB 与 sing-box SRS。
 
 数据链固定为：上游 `geosite.dat` / `geoip.dat` → 语义 Patch → 最终 DAT →
-逐分类 sing-box JSON → SRS。仓库不会复制或重新运行上游完整规则构建工程。
+`geoip.metadb` / 逐分类 sing-box JSON → SRS。MetaDB 与 SRS 都从 Patch 后 DAT
+派生；仓库不会复制或重新运行上游完整规则构建工程。
 
 ## 获取产物
 
 GitHub Release 是不可变的审计与回滚来源，包含：
 
-- `geosite.dat`、`geoip.dat`
+- `geosite.dat`、`geoip.dat`、`geoip.metadb`
 - `srs.tar.gz`
 - `manifest.json`、`SHA256SUMS`
 
@@ -19,9 +20,29 @@ GitHub Release 是不可变的审计与回滚来源，包含：
 `geoip/<category>.srs` 及对应 manifest/checksum。Release tag 格式为
 `u<upstream-release-id>-c<12位本仓库commit>`。
 
-Mihomo 可将 Release 中的 DAT 配置为 GeoData 数据源；sing-box 可直接把
+Mihomo 可将 Release 中的 DAT 配置为 GeoData 数据源，也可直接使用保留相同
+GeoIP 分类的 MetaDB；sing-box 可直接把
 `release` 分支中的单分类 `.srs` 配置为远程 rule-set。使用前应按
 `SHA256SUMS` 校验文件。
+
+使用 DAT 时启用 GeoData 模式：
+
+```yaml
+geodata-mode: true
+geox-url:
+  geoip: https://github.com/fantasticliyin/customized-proxy-rules/releases/latest/download/geoip.dat
+  geosite: https://github.com/fantasticliyin/customized-proxy-rules/releases/latest/download/geosite.dat
+```
+
+只需要 GeoIP MetaDB 时关闭 GeoData 模式并配置 `mmdb`：
+
+```yaml
+geodata-mode: false
+geox-url:
+  mmdb: https://github.com/fantasticliyin/customized-proxy-rules/releases/latest/download/geoip.metadb
+```
+
+`release` 分支仍只承载 SRS 快照，不包含 DAT 或 MetaDB。
 
 ## 维护规则
 

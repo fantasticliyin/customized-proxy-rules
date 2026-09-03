@@ -162,6 +162,36 @@ func MihomoSmoke(ctx context.Context, mihomo, geositeDAT, geoipDAT, siteCategory
 	return nil
 }
 
+// MihomoMetaDBSmoke asks Mihomo to load the published MetaDB mode and resolve
+// a representative GEOIP category from it.
+func MihomoMetaDBSmoke(ctx context.Context, mihomo, metaDB, ipCategory string) error {
+	if mihomo == "" || !safeName(ipCategory) {
+		return fmt.Errorf("mihomo executable and a safe representative category are required")
+	}
+	dir, err := os.MkdirTemp("", "rule-patcher-mihomo-metadb-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	data, err := os.ReadFile(metaDB)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "geoip.metadb"), data, 0o644); err != nil {
+		return err
+	}
+	config := fmt.Sprintf("geodata-mode: false\nmode: rule\nlog-level: error\nproxies: []\nproxy-groups: []\nrules:\n  - GEOIP,%s,DIRECT,no-resolve\n  - MATCH,DIRECT\n", ipCategory)
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, mihomo, "-d", dir, "-f", configPath, "-t")
+	if output, err := runCommand(cmd); err != nil {
+		return fmt.Errorf("mihomo MetaDB smoke test failed: %w: %s", err, limitText(output))
+	}
+	return nil
+}
+
 // ValidateCompiled asks the locked sing-box binary to decode every published
 // rule-set. Index validation remains the caller's responsibility.
 func ValidateCompiled(ctx context.Context, singBox, root string, relativePaths []string) error {

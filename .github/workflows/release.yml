@@ -243,7 +243,7 @@ jobs:
           trap compensate ERR
 
           notes="$(mktemp)"
-          jq -r '"Upstream: \(.upstream.repository) Release ID \(.upstream.release_id)\nInput GeoSite SHA-256: \(.upstream.geosite_sha256)\nInput GeoIP SHA-256: \(.upstream.geoip_sha256)\nWarnings: \(.warnings | length)\n\nDerived under GPL-3.0-only from MetaCubeX/meta-rules-dat. Verify with SHA256SUMS."' publish/dist/manifest.json > "$notes"
+          jq -r '"Upstream: \(.upstream.repository) Release ID \(.upstream.release_id)\nInput GeoSite SHA-256: \(.upstream.geosite_sha256)\nInput GeoIP SHA-256: \(.upstream.geoip_sha256)\nGeoIP MetaDB SHA-256: \(.files["geoip.metadb"].sha256)\nWarnings: \(.warnings | length)\n\nDerived under GPL-3.0-only from MetaCubeX/meta-rules-dat. Verify with SHA256SUMS."' publish/dist/manifest.json > "$notes"
           if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Target tag appeared after identity check; refusing to bind it" >&2
             exit 1
@@ -256,11 +256,11 @@ jobs:
           created_release="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" --input - <<<"$release_payload")"
           release_id="$(jq -er '.id' <<<"$created_release")"
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/srs.tar.gz \
+            publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/geoip.metadb publish/dist/srs.tar.gz \
             publish/dist/manifest.json publish/dist/SHA256SUMS
 
           release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id")"
-          for path in publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/srs.tar.gz publish/dist/manifest.json publish/dist/SHA256SUMS; do
+          for path in publish/dist/geosite.dat publish/dist/geoip.dat publish/dist/geoip.metadb publish/dist/srs.tar.gz publish/dist/manifest.json publish/dist/SHA256SUMS; do
             name="$(basename "$path")"
             size="$(stat -c %s "$path")"
             digest="sha256:$(sha256sum "$path" | cut -d' ' -f1)"

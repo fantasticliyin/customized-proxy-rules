@@ -41,6 +41,23 @@ func TestSafeNameAllowsUpstreamNegatedAttribute(t *testing.T) {
 		}
 	}
 }
+
+func TestMihomoMetaDBSmokeUsesExpectedFilenameAndMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture")
+	}
+	dir := t.TempDir()
+	metaDB := filepath.Join(dir, "source.metadb")
+	if err := os.WriteFile(metaDB, []byte("fixture"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mihomo := filepath.Join(dir, "mihomo")
+	writeExecutable(t, mihomo, "#!/bin/sh\ndir=''\nconfig=''\nwhile [ $# -gt 0 ]; do\n  case \"$1\" in\n    -d) dir=$2; shift 2 ;;\n    -f) config=$2; shift 2 ;;\n    *) shift ;;\n  esac\ndone\ntest -s \"$dir/geoip.metadb\"\ngrep -q '^geodata-mode: false$' \"$config\"\ngrep -q 'GEOIP,tailscale,DIRECT,no-resolve' \"$config\"\n")
+	if err := MihomoMetaDBSmoke(context.Background(), mihomo, metaDB, "tailscale"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeExecutable(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
